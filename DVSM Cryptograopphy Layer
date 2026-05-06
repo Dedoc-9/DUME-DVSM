@@ -1,334 +1,196 @@
 // =====================================================
-// DVSM CRYPTOGRAPHY LAYER
+// DVSM SOVEREIGN CRYPTO LAYER
+// Atomic • Contextual • Guarded • Hardware-Extensible
 // =====================================================
-// Production-Ready Cryptographic Foundation
 //
-// Guarantees:
-// - Confidentiality (AES-GCM)
-// - Integrity (SHA256 + domain separation)
-// - Authenticity (Ed25519)
-// - Deterministic + secure key derivation (HKDF)
-// - VRF-compatible interface (upgrade-ready)
+// DESIGN GOALS:
+// - No key material escapes
+// - Cryptography bound to data integrity (Merkle state)
+// - Forward secrecy via ratcheting
+// - Context-verified execution only
+// - Upgrade path to HSM / MPC / ZK systems
 //
-// Design Rules:
-// - NO raw crypto outside this layer
-// - ALL hashing must be domain-separated
-// - ALL keys derived from root secret
 // =====================================================
 
 import Foundation
 import CryptoKit
 
 // =====================================================
+// MARK: - SHARD CONTEXT (TRUST ANCHOR)
+// =====================================================
+
+public struct DVSMShardContext: Sendable {
+    public let shardID: String
+    public let merkleRoot: Data
+    public let version: UInt64
+    public let isVerified: Bool
+}
+
+// =====================================================
 // MARK: - ERROR MODEL
 // =====================================================
 
 public enum DVSMCryptoError: Error, Sendable {
+    case invalidContext
     case encryptionFailure
     case decryptionFailure
-    case invalidKey
-    case signatureFailure
-    case encodingFailure
 }
 
 // =====================================================
-// MARK: - HASHING (DOMAIN-SEPARATED)
+// MARK: - RATCHET (FORWARD SECRECY CORE)
 // =====================================================
 
-public protocol DVSMHashing: Sendable {
-    func hash(_ data: Data) -> Data
-}
+struct DVSMRatchet {
+    private var state: SymmetricKey
 
-public struct DVSMSHA256Hasher: DVSMHashing {
-    public init() {}
-    public func hash(_ data: Data) -> Data {
-        Data(SHA256.hash(data: data))
-    }
-}
-
-// -----------------------------------------------------
-
-public enum DVSMHashDomain: String {
-    case crypto
-    case dag
-    case commitment
-    case signature
-    case vrf
-}
-
-// -----------------------------------------------------
-
-public struct DVSMHasher {
-
-    private let base: any DVSMHashing
-
-    public init(base: any DVSMHashing = DVSMSHA256Hasher()) {
-        self.base = base
+    init(seed: SymmetricKey) {
+        self.state = seed
     }
 
-    public func hash(_ data: Data, domain: DVSMHashDomain) -> Data {
-        let prefix = Data(domain.rawValue.utf8)
-        return base.hash(prefix + data)
+    mutating func advance(context: Data) -> SymmetricKey {
+        let next = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: state,
+            salt: context,
+            info: Data("DVSM-RATCHET".utf8),
+            outputByteCount: 32
+        )
+        state = next
+        return next
     }
 }
 
 // =====================================================
-// MARK: - SYMMETRIC ENCRYPTION (AES-GCM)
+// MARK: - SOVEREIGN VAULT (NO KEY ESCAPE)
 // =====================================================
 
-public protocol DVSMSymmetricCrypto: Sendable {
-    func encrypt(_ data: Data, key: SymmetricKey) throws -> Data
-    func decrypt(_ data: Data, key: SymmetricKey) throws -> Data
-}
+public actor DVSMSovereignVault {
 
-public struct DVSMAESGCMCrypto: DVSMSymmetricCrypto {
+    private let rootProvider: DVSMRootKeyProvider
+    private var ratchets: [String: DVSMRatchet] = [:]
 
-    public init() {}
-
-    public func encrypt(_ data: Data, key: SymmetricKey) throws -> Data {
-        let sealed = try AES.GCM.seal(data, using: key)
-        guard let combined = sealed.combined else {
-            throw DVSMCryptoError.encryptionFailure
-        }
-        return combined
-    }
-
-    public func decrypt(_ data: Data, key: SymmetricKey) throws -> Data {
-        let box = try AES.GCM.SealedBox(combined: data)
-        return try AES.GCM.open(box, using: key)
-    }
-}
-
-// =====================================================
-// MARK: - SIGNATURES (Ed25519)
-// =====================================================
-
-public protocol DVSMSignatureScheme: Sendable {
-    func sign(_ data: Data, privateKey: Curve25519.Signing.PrivateKey) throws -> Data
-    func verify(_ data: Data, signature: Data, publicKey: Curve25519.Signing.PublicKey) -> Bool
-}
-
-public struct DVSMEd25519Signer: DVSMSignatureScheme {
-
-    public init() {}
-
-    public func sign(_ data: Data, privateKey: Curve25519.Signing.PrivateKey) throws -> Data {
-        try privateKey.signature(for: data)
-    }
-
-    public func verify(_ data: Data, signature: Data, publicKey: Curve25519.Signing.PublicKey) -> Bool {
-        publicKey.isValidSignature(signature, for: data)
-    }
-}
-
-// =====================================================
-// MARK: - VRF (STRUCTURALLY CORRECT, UPGRADE-READY)
-// =====================================================
-
-public protocol DVSMVRF: Sendable {
-    func evaluate(seed: Data, context: Data) -> (output: Data, proof: Data)
-}
-
-public struct DVSMVRFStub: DVSMVRF {
-
-    public init() {}
-
-    public func evaluate(seed: Data, context: Data) -> (output: Data, proof: Data) {
-        let combined = seed + context
-
-        let output = Data(SHA256.hash(data: combined))
-
-        // Placeholder proof (NOT real VRF proof)
-        let proof = Data(SHA256.hash(data: output + seed))
-
-        return (output, proof)
-    }
-}
-
-// =====================================================
-// MARK: - PRODUCTION KEY VAULT (HKDF DERIVATION)
-// =====================================================
-//
-// CRITICAL:
-// - Keys are NOT derived from ID directly
-// - Keys are derived from ROOT SECRET using HKDF
-// - Deterministic + secure
-//
-// =====================================================
-
-public actor DVSMKeyVault {
-
-    public struct KeyPair: Sendable {
-        public let privateKey: Curve25519.Signing.PrivateKey
-        public let publicKey: Curve25519.Signing.PublicKey
-    }
-
-    private let rootSecret: SymmetricKey
-    private var signingKeys: [String: KeyPair] = [:]
-
-    // -------------------------------------------------
-    // INIT
-    // -------------------------------------------------
-
-    public init(rootSecret: SymmetricKey? = nil) {
-        // DEV: auto-generate
-        // PROD: inject from Secure Enclave / KMS
-        self.rootSecret = rootSecret ?? SymmetricKey(size: .bits256)
+    public init(rootProvider: DVSMRootKeyProvider) {
+        self.rootProvider = rootProvider
     }
 
     // -------------------------------------------------
-    // HKDF KEY DERIVATION (CORE SECURITY FIX)
+    // MARK: - CONTEXTUAL KEY DERIVATION
     // -------------------------------------------------
 
     private func deriveKey(
         id: String,
-        shard: String,
-        purpose: String
-    ) -> SymmetricKey {
+        shard: DVSMShardContext
+    ) async throws -> SymmetricKey {
 
-        let salt = Data("DVSM-HKDF-SALT".utf8)
+        guard shard.isVerified else {
+            throw DVSMCryptoError.invalidContext
+        }
 
-        let info = Data([
+        let root = try await rootProvider.rootKey()
+
+        let context = Data([
             "id:\(id)",
-            "shard:\(shard)",
-            "purpose:\(purpose)"
+            "shard:\(shard.shardID)",
+            "version:\(shard.version)"
         ].joined(separator: "|").utf8)
 
-        return HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: rootSecret,
-            salt: salt,
-            info: info,
+        let seed = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: root,
+            salt: shard.merkleRoot,
+            info: context,
             outputByteCount: 32
         )
+
+        var ratchet = ratchets[shard.shardID] ?? DVSMRatchet(seed: seed)
+        let derived = ratchet.advance(context: shard.merkleRoot)
+
+        ratchets[shard.shardID] = ratchet
+        return derived
     }
 
     // -------------------------------------------------
-    // PUBLIC KEY ACCESS
+    // MARK: - ATOMIC EXECUTION
     // -------------------------------------------------
 
-    public func symmetricKey(
+    public func execute<T: Sendable>(
         id: String,
-        shard: String,
-        purpose: String = "default"
-    ) -> SymmetricKey {
-        deriveKey(id: id, shard: shard, purpose: purpose)
-    }
+        shard: DVSMShardContext,
+        operation: (inout SymmetricKey) throws -> T
+    ) async throws -> T {
 
-    // -------------------------------------------------
-    // SIGNING KEYS (NON-DETERMINISTIC SAFE KEYS)
-    // -------------------------------------------------
+        var key = try await deriveKey(id: id, shard: shard)
 
-    public func createSigningKeyPair(id: String) -> KeyPair {
-        let priv = Curve25519.Signing.PrivateKey()
-        let pair = KeyPair(privateKey: priv, publicKey: priv.publicKey)
-        signingKeys[id] = pair
-        return pair
-    }
+        defer {
+            withUnsafeMutableBytes(of: &key) {
+                $0.resetBytes(in: 0..<$0.count)
+            }
+        }
 
-    public func getSigningKeyPair(id: String) -> KeyPair? {
-        signingKeys[id]
+        return try operation(&key)
     }
 }
 
 // =====================================================
-// MARK: - CRYPTO ENGINE (UNIFIED INTERFACE)
+// MARK: - ROOT KEY PROVIDER (EXTENSIBLE TRUST SOURCE)
 // =====================================================
 
-public final class DVSMCryptoEngine: Sendable {
+public protocol DVSMRootKeyProvider: Sendable {
+    func rootKey() async throws -> SymmetricKey
+}
 
-    private let hasher: DVSMHasher
-    private let symmetric: any DVSMSymmetricCrypto
-    private let signer: any DVSMSignatureScheme
-    private let vault: DVSMKeyVault
+// -----------------------------------------------------
+// DEV IMPLEMENTATION (REPLACE IN PROD)
+// -----------------------------------------------------
 
-    public init(
-        hasher: DVSMHasher = DVSMHasher(),
-        symmetric: any DVSMSymmetricCrypto = DVSMAESGCMCrypto(),
-        signer: any DVSMSignatureScheme = DVSMEd25519Signer(),
-        vault: DVSMKeyVault = DVSMKeyVault()
-    ) {
-        self.hasher = hasher
-        self.symmetric = symmetric
-        self.signer = signer
+public struct DVSMInMemoryRootProvider: DVSMRootKeyProvider {
+
+    private let key: SymmetricKey
+
+    public init() {
+        self.key = SymmetricKey(size: .bits256)
+    }
+
+    public func rootKey() async throws -> SymmetricKey {
+        key
+    }
+}
+
+// =====================================================
+// MARK: - CRYPTO ENGINE (KEYLESS EXECUTION)
+// =====================================================
+
+public final class DVSMCryptoEngine {
+
+    private let vault: DVSMSovereignVault
+
+    public init(vault: DVSMSovereignVault) {
         self.vault = vault
     }
 
-    // =================================================
-    // HASH (DOMAIN SAFE)
-    // =================================================
-
-    public func hash(_ data: Data) -> Data {
-        hasher.hash(data, domain: .crypto)
-    }
-
-    // =================================================
-    // ENCRYPT / DECRYPT (SHARD-AWARE)
-    // =================================================
-
     public func encrypt(
         _ data: Data,
-        keyID: String,
-        shard: String
+        id: String,
+        shard: DVSMShardContext
     ) async throws -> Data {
 
-        let key = await vault.symmetricKey(
-            id: keyID,
-            shard: shard,
-            purpose: "encryption"
-        )
-
-        return try symmetric.encrypt(data, key: key)
+        try await vault.execute(id: id, shard: shard) { key in
+            let sealed = try AES.GCM.seal(data, using: key)
+            guard let combined = sealed.combined else {
+                throw DVSMCryptoError.encryptionFailure
+            }
+            return combined
+        }
     }
 
     public func decrypt(
         _ data: Data,
-        keyID: String,
-        shard: String
+        id: String,
+        shard: DVSMShardContext
     ) async throws -> Data {
 
-        let key = await vault.symmetricKey(
-            id: keyID,
-            shard: shard,
-            purpose: "encryption"
-        )
-
-        return try symmetric.decrypt(data, key: key)
-    }
-
-    // =================================================
-    // SIGN / VERIFY
-    // =================================================
-
-    public func sign(_ data: Data, keyID: String) async throws -> Data {
-        guard let pair = await vault.getSigningKeyPair(id: keyID) else {
-            throw DVSMCryptoError.invalidKey
+        try await vault.execute(id: id, shard: shard) { key in
+            let box = try AES.GCM.SealedBox(combined: data)
+            return try AES.GCM.open(box, using: key)
         }
-        return try signer.sign(data, privateKey: pair.privateKey)
     }
-
-    public func verify(
-        _ data: Data,
-        signature: Data,
-        keyID: String
-    ) async -> Bool {
-
-        guard let pair = await vault.getSigningKeyPair(id: keyID) else {
-            return false
-        }
-
-        return signer.verify(data, signature: signature, publicKey: pair.publicKey)
-    }
-
-    // =================================================
-    // DAG COMMITMENT (DOMAIN-SEPARATED, SAFE)
-    // =================================================
-
-    public func commit(
-        _ data: Data,
-        salt: Data? = nil
-    ) -> Data {
-
-        let base = data + (salt ?? Data())
-        return hasher.hash(base, domain: .commitment)
-    }
+}
 }

@@ -9,10 +9,15 @@ Author: Daniel J. Dillberg (2026)
 // License: GPL-3.0
 //
 // ROLE OF THIS FILE:
-// - Human-readable whitepaper (Markdown-in-comments)
-// - Machine-readable system metadata (Swift structs/enums)
+// - Human-readable architectural whitepaper (commented spec)
+// - Machine-readable system metadata (Swift types)
+// - Non-executable documentation layer
 // - No runtime logic required
-// - No invalid Swift constructs
+//
+// NOTE:
+// This document describes an experimental architecture.
+// All performance and security properties are theoretical
+// or dependent on external system implementations.
 //
 // =====================================================
 
@@ -54,15 +59,22 @@ public enum DVSMApplications: Sendable {
 // =====================================================
 // MARK: - PERFORMANCE MODEL (ESTIMATED)
 // =====================================================
+//
+// NOTE:
+// These values are simulation-based estimates and depend on:
+// - shard topology
+// - DAG compression efficiency
+// - network conditions
+// - external consensus/ZK performance
+//
+// =====================================================
 
 public struct DVSMPerformanceModel {
 
-    // These are engineering estimates (not runtime guarantees)
-
-    public static let memoryReduction: Float = 0.45
-    public static let recomputationReduction: Float = 0.80
-    public static let burstLatencyReduction: Float = 0.40
-    public static let throughputGainAdaptive: Float = 1.2
+    public static let memoryReduction: Float = 0.45          // ~30–60%
+    public static let recomputationReduction: Float = 0.80   // ~70–95%
+    public static let burstLatencyReduction: Float = 0.40     // ~25–60%
+    public static let throughputGainAdaptive: Float = 1.2     // up to ~120%
 }
 
 // =====================================================
@@ -75,7 +87,6 @@ public struct DVSMBandwidthModel {
     public static let shardRoutingSavings: Float = 0.65
     public static let merkleIncrementalSavings: Float = 0.85
 
-    // FIXED: Swift-safe representation (no invalid range type)
     public static let totalEstimatedNetworkReduction: ClosedRange<Float> = 0.60...0.85
 }
 
@@ -88,6 +99,11 @@ public struct DVSMSecurityModel {
     public static let byzantineTolerance = true
     public static let deterministicReplay = true
     public static let immutableAuditTrail = true
+
+    // NOTE:
+    // These properties assume correct implementation of:
+    // - external consensus layer (PBFT/HotStuff-like systems)
+    // - cryptographic verification layer (ZK or equivalent)
 }
 
 // =====================================================
@@ -99,6 +115,9 @@ public struct DVSMLimitations {
     public static let zkExternal = true
     public static let consensusExternal = true
     public static let adaptiveNonAuthoritative = true
+
+    // NOTE:
+    // This system is a coordination layer, not a full cryptographic protocol suite.
 }
 
 // =====================================================
@@ -133,7 +152,7 @@ public struct DVSMRoadmap {
 //
 // NOTE:
 // This section is intentionally COMMENT-ONLY so the file
-// remains valid Swift while still serving as README content.
+// remains valid Swift while serving as embedded documentation.
 //
 // =====================================================
 //
@@ -141,16 +160,16 @@ public struct DVSMRoadmap {
 // ---------------------------------------------
 //
 // CORE DESIGN PRINCIPLE:
-// Every state transition must be:
-// - deterministic OR
-// - reproducible OR
+// System state transitions must be:
+// - deterministic, OR
+// - reproducible, OR
 // - cryptographically verifiable
 //
-// If none apply → state is rejected.
+// Transitions failing these conditions are rejected.
 //
 // ---------------------------------------------
 //
-// ARCHITECTURE:
+// ARCHITECTURE OVERVIEW:
 //
 // Adaptive Engine
 //      ↓
@@ -158,104 +177,87 @@ public struct DVSMRoadmap {
 //      ↓
 // Merkle DAG State Layer
 //      ↓
-// External Verification (ZK / Consensus / Replay VM)
+// External Verification Layer
+// (ZK proofs / consensus systems / replay VM)
 //
 // ---------------------------------------------
 //
 // ENVIRONMENT TARGETS:
 //
-// Mobile Edge Devices (iOS/Android/Wearables):
-// - Battery consumption reduction: 20% – 45%
-// - Memory footprint reduction: 30% – 60%
-// - Network bandwidth usage reduction: 40% – 75%
-// - Inference/compute latency reduction: 15% – 35%
-// - Background sync overhead reduction: 50% – 80%
+// Mobile Edge Devices (iOS / Android / Wearables):
+// - Battery usage reduction: ~20% – 45%
+// - Memory footprint reduction: ~30% – 60%
+// - Network bandwidth reduction: ~40% – 75%
+// - Latency improvement: ~15% – 35%
+// - Background sync overhead reduction: ~50% – 80%
 //
-// Hyperscale Cloud Clusters (AWS/GCP/Azure):
-// - Throughput increase: 25% – 120%
-// - Cross-node network traffic reduction: 40% – 70%
-// - State recomputation reduction: 70% – 95%
-// - Consensus overhead reduction: 30% – 60%
-// - Storage write amplification reduction: 35% – 65%
+// Hyperscale Cloud Clusters (AWS / GCP / Azure):
+// - Throughput improvement: ~25% – 120%
+// - Cross-node traffic reduction: ~40% – 70%
+// - State recomputation reduction: ~70% – 95%
+// - Consensus overhead reduction: ~30% – 60%
+// - Storage amplification reduction: ~35% – 65%
 //
-// Industrial Control Systems (OT/SCADAEnvironments):
-// - Decision latency reduction: 10% – 30%
-// - Fault detection speed improvement: 25% – 55%
-// - Audit/report generation cost reduction: 60% – 90%
-// - System state recovery time reduction: 40% – 75%
-// - Operational error propagation reduction: 20% – 50%
+// Industrial Control Systems (OT / SCADA environments):
+// - Decision latency reduction: ~10% – 30%
+// - Fault detection improvement: ~25% – 55%
+// - Audit generation cost reduction: ~60% – 90%
+// - Recovery time reduction: ~40% – 75%
+// - Error propagation reduction: ~20% – 50%
 //
-// EDGE/ AI Accelerators (NPU/TPU/Neural Engines):
-// - 30–60% memory reduction...
-// - 20–35% bandwidth savings...
-//
-// CLOUD:
-// - 2–5× throughput scaling...
-// - 40–70% recomputation reduction...
-//
-// STREAMING:
-// - 25–60% latency reduction under load...
-//
-// GOVERNED SYSTEMS:
-// - 100% reproducible execution guarantee...
-//
-// These improvements assume:
-// - Correct shard partitioning
-// - Efficient incremental DAG implementation
-// - External ZK + consensus layers performing as expected
-// - Minimal reversion to “full recompute mode”
+// Edge AI Systems (NPUs / TPUs / accelerators):
+// - Memory reduction: ~30% – 60%
+// - Bandwidth reduction: ~20% – 35%
+// - Inference latency improvement: ~15% – 40%
 //
 // ---------------------------------------------
 //
 // REAL-WORLD APPLICATIONS:
 //
-// - Financial audit systems
-// - AI inference traceability layers
-// - Blockchain execution environments
-// - IoT distributed networks
-// - Enterprise compliance systems
-// - Autonomous Edge Networks
-// - Industrial IoT
-// - Fraud & Anomaly Detection (FinTech)
-// - Blockchain Execution Layer Replacement (L2/L3 Systems)
-// - Regulatory Compliance Engines (GDPR/HIPAA/SOX)
-// - Multi-Region Distributed SaaS Systems
-// - Clinical Decision Support Systems
-// - Cybersecurity / Event Reconstruction
-// - Deterministic Multiplayer / Simulation Systems
+// - Financial audit and reconciliation systems
+// - AI inference traceability and verification layers
+// - Blockchain execution and validation environments
+// - IoT distributed coordination networks
+// - Enterprise compliance and governance systems
+// - Industrial telemetry and control auditing
+// - Fraud detection and anomaly reconstruction systems
+// - Multi-region distributed SaaS consistency layers
+// - Clinical decision support and traceable analytics
+// - Deterministic simulation and multiplayer systems
+//
+// NOTE:
+// This architecture does NOT replace blockchain systems
+// or cryptographic protocols. It complements them as a
+// coordination and verification layer.
 //
 // ---------------------------------------------
 //
 // SECURITY MODEL:
 //
-// - Byzantine fault tolerance assumed
-// - No silent state mutation
-// - Full execution traceability
-// - Deterministic replay capability
+// - Byzantine fault conditions assumed in network nodes
+// - No silent or untraceable state transitions
+// - Full auditability of state changes
+// - Deterministic replay capability depends on external VM
 //
 // ---------------------------------------------
 //
 // LIMITATIONS:
 //
-// - ZK system external (Rust FFI required)
-// - Consensus not embedded in Swift
-// - Adaptive engine is non-authoritative
-// - Performance depends on shard topology
+// - Zero-knowledge systems are external dependencies
+// - Consensus mechanisms are not implemented here
+// - Adaptive engine is non-authoritative by design
+// - Performance depends heavily on shard and DAG structure
 //
 // ---------------------------------------------
 //
 // FUTURE WORK:
 //
-// - Recursive SNARK DAG compression
-// - GPU Merkle acceleration
-// - Full distributed replay VM
-// - SMT invariant verification
-// - Cross-shard zk-rollups
+// - Recursive SNARK-based DAG compression
+// - GPU-accelerated Merkle computation
+// - Distributed deterministic replay VM
+// - SMT-based invariant verification
+// - Cross-shard zk-rollup integration
 //
 // =====================================================
 // END OF WHITEPAPER FILE
-// =====================================================
-
-// =====================================================
-// END OF WHITEPAPER README
 // =====================================================

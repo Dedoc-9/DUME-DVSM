@@ -1,18 +1,31 @@
 // =====================================================
-// DVSM RUNTIME FOUNDATION (AUDIT-GRADE REVISION)
+// DVSM / DUME UNIFIED BYZANTINE RUNTIME SYSTEM
+// =====================================================
+// SINGLE-FILE ARCHITECTURE (CORE + CONSENSUS + DAG)
+// =====================================================
+//
+// ROLE:
+// - Deterministic execution engine
+// - Merkle DAG state construction
+// - Adaptive proposal layer (non-authoritative)
+// - Byzantine consensus finalization layer (PBFT-style model)
+//
+// IMPORTANT CORRECTION:
+// Strict engine NEVER finalizes state.
+// Consensus determines truth.
 // =====================================================
 
 import Foundation
 import CryptoKit
 
 // =====================================================
-// MARK: - EXECUTION MODE
+// MARK: - EXECUTION MODEL
 // =====================================================
 
 public enum DVSMExecutionMode: Sendable {
-    case strict          // fully deterministic, audit-grade
-    case adaptive        // probabilistic / environmental
-    case hybrid          // both with arbitration
+    case strict
+    case adaptive
+    case hybrid
 }
 
 // =====================================================
@@ -26,7 +39,7 @@ public struct DVSMNodeContext: Sendable {
 }
 
 // =====================================================
-// MARK: - DETERMINISTIC PAYLOAD
+// MARK: - PAYLOAD
 // =====================================================
 
 public struct DVSMVectorPayload: Sendable {
@@ -40,22 +53,13 @@ public struct DVSMVectorPayload: Sendable {
 // =====================================================
 
 public enum DVSMResult: Sendable {
-    case accepted(root: String)
+    case accepted(finalRoot: String)
     case rejected(reason: String)
     case deferred
 }
 
 // =====================================================
-// MARK: - MERKLE DAG STATE (CORE FIX #1)
-// =====================================================
-
-public struct MerkleNode: Sendable {
-    public let hash: String
-    public let parent: String?
-}
-
-// =====================================================
-// MARK: - CRYPTO LAYER (DETERMINISTIC ONLY)
+// MARK: - CRYPTO PROVIDER
 // =====================================================
 
 public protocol DVSMCryptoProvider: Sendable {
@@ -69,19 +73,7 @@ public struct SHA256Provider: DVSMCryptoProvider {
 }
 
 // =====================================================
-// MARK: - AUDIT-GRADE STATE LOG (CORE FIX #2)
-// =====================================================
-
-public struct AuditRecord: Sendable {
-    public let id: String
-    public let payloadHash: String
-    public let prevHash: String?
-    public let shardRoot: String
-    public let timestamp: UInt64
-}
-
-// =====================================================
-// MARK: - MERKLE DAG ENGINE (CORE FIX #1)
+// MARK: - MERKLE DAG (LOCAL STATE BUILDER)
 // =====================================================
 
 public actor DVSMMerkleDAG {
@@ -96,7 +88,10 @@ public actor DVSMMerkleDAG {
     public func append(_ data: Data) -> String {
         let prev = tip
         let combined = Data((prev + data.base64EncodedString()).utf8)
-        let newHash = crypto.hash(combined).map { String(format: "%02x", $0) }.joined()
+        let newHash = crypto.hash(combined)
+            .map { String(format: "%02x", $0) }
+            .joined()
+
         tip = newHash
         return newHash
     }
@@ -107,39 +102,15 @@ public actor DVSMMerkleDAG {
 }
 
 // =====================================================
-// MARK: - BYZANTINE CONSENSUS LAYER (CORE FIX #3)
+// MARK: - AUDIT RECORD
 // =====================================================
 
-public protocol DVSMConsensusEngine: Sendable {
-    func quorum(_ votes: [Bool]) -> Bool
-}
-
-public struct PBFTConsensus: DVSMConsensusEngine {
-
-    public init() {}
-
-    public func quorum(_ votes: [Bool]) -> Bool {
-        guard !votes.isEmpty else { return false }
-        let yes = votes.filter { $0 }.count
-        return yes >= (votes.count * 2 / 3)
-    }
-}
-
-// =====================================================
-// MARK: - STRICT GOVERNANCE
-// =====================================================
-
-public protocol DVSMGovernance: Sendable {
-    func validate(_ payload: DVSMVectorPayload) -> Bool
-}
-
-public struct MinimalGovernance: DVSMGovernance {
-
-    public init() {}
-
-    public func validate(_ payload: DVSMVectorPayload) -> Bool {
-        !payload.id.isEmpty && !payload.vector.isEmpty
-    }
+public struct AuditRecord: Sendable {
+    public let id: String
+    public let payloadHash: String
+    public let prevHash: String?
+    public let shardRoot: String
+    public let timestamp: UInt64
 }
 
 // =====================================================
@@ -155,12 +126,14 @@ public actor DVSMStrictEngine {
         self.dag = dag
     }
 
-    public func ingest(
+    /// Produces a deterministic candidate state (NOT final)
+    public func execute(
         _ payload: DVSMVectorPayload,
         context: DVSMNodeContext
-    ) async throws -> DVSMResult {
+    ) async throws -> (root: String, record: AuditRecord) {
 
         let encoded = try JSONEncoder().encode(payload)
+
         let payloadHash = SHA256.hash(data: encoded)
             .map { String(format: "%02x", $0) }
             .joined()
@@ -177,7 +150,7 @@ public actor DVSMStrictEngine {
 
         auditLog.append(record)
 
-        return .accepted(root: root)
+        return (root, record)
     }
 
     public func verifyChain() -> Bool {
@@ -192,14 +165,10 @@ public actor DVSMStrictEngine {
 
         return true
     }
-
-    public func currentRoot() async -> String {
-        await dag.root()
-    }
 }
 
 // =====================================================
-// MARK: - ADAPTIVE ENGINE (NON-DETERMINISTIC LAYER)
+// MARK: - ADAPTIVE ENGINE (NON-DETERMINISTIC)
 // =====================================================
 
 public actor DVSMAdaptiveEngine {
@@ -209,47 +178,114 @@ public actor DVSMAdaptiveEngine {
     public func propose(
         _ payload: DVSMVectorPayload,
         context: DVSMNodeContext
-    ) async -> DVSMResult {
+    ) async -> String {
 
-        // probabilistic approximation layer
         let score = Float.random(in: 0...1)
 
-        if score > 0.5 {
-            return .accepted(root: "adaptive-\(payload.id)")
+        return score > 0.5
+            ? "adaptive-accept-\(payload.id)"
+            : "adaptive-defer-\(payload.id)"
+    }
+}
+
+// =====================================================
+// MARK: - BYZANTINE CONSENSUS TYPES (PBFT MODEL)
+// =====================================================
+
+public enum ConsensusPhase: Sendable {
+    case prePrepare
+    case prepare
+    case commit
+}
+
+public enum ConsensusDecision: Sendable {
+    case commit(root: String)
+    case reject(reason: String)
+    case pending
+}
+
+// =====================================================
+// MARK: - BYZANTINE CONSENSUS ENGINE (ABSTRACT PBFT)
+// =====================================================
+//
+// NOTE:
+// This is a protocol-level representation of PBFT,
+// NOT a full network implementation.
+// Real implementation requires node networking layer.
+// =====================================================
+
+public protocol DVSMByzantineConsensus: Sendable {
+
+    func propose(root: String) async -> ConsensusDecision
+
+    func broadcastPrepare(root: String) async -> Int
+
+    func broadcastCommit(root: String) async -> Int
+
+    func finalize(root: String, commitCount: Int, totalNodes: Int) -> ConsensusDecision
+}
+
+// =====================================================
+// MARK: - SIMPLE PBFT MODEL (REFERENCE IMPLEMENTATION)
+// =====================================================
+
+public struct PBFTConsensus: DVSMByzantineConsensus {
+
+    public init() {}
+
+    public func propose(root: String) async -> ConsensusDecision {
+        .pending
+    }
+
+    public func broadcastPrepare(root: String) async -> Int {
+        Int.random(in: 2...5)
+    }
+
+    public func broadcastCommit(root: String) async -> Int {
+        Int.random(in: 2...5)
+    }
+
+    public func finalize(root: String, commitCount: Int, totalNodes: Int) -> ConsensusDecision {
+
+        guard totalNodes > 0 else {
+            return .reject(reason: "No nodes available")
+        }
+
+        let threshold = (2 * totalNodes) / 3
+
+        if commitCount >= threshold {
+            return .commit(root: root)
         } else {
-            return .deferred
+            return .reject(reason: "Insufficient Byzantine quorum")
         }
     }
 }
 
 // =====================================================
-// MARK: - SYSTEM ORCHESTRATOR
+// MARK: - SYSTEM ORCHESTRATOR (CORRECTED FLOW)
 // =====================================================
 
 public final class DVSMSystem {
 
     private let strict: DVSMStrictEngine
     private let adaptive: DVSMAdaptiveEngine?
-    private let governance: DVSMGovernance
-    private let consensus: DVSMConsensusEngine
+    private let consensus: DVSMByzantineConsensus
     private let mode: DVSMExecutionMode
 
     public init(
         strict: DVSMStrictEngine,
         adaptive: DVSMAdaptiveEngine? = nil,
-        governance: DVSMGovernance,
-        consensus: DVSMConsensusEngine,
+        consensus: DVSMByzantineConsensus,
         mode: DVSMExecutionMode = .strict
     ) {
         self.strict = strict
         self.adaptive = adaptive
-        self.governance = governance
         self.consensus = consensus
         self.mode = mode
     }
 
     // =====================================================
-    // MARK: - INGEST PIPELINE (FIXED FLOW)
+    // MARK: - INGEST PIPELINE (CONSENSUS-AUTHORITY MODEL)
     // =====================================================
 
     public func ingest(
@@ -257,22 +293,39 @@ public final class DVSMSystem {
         context: DVSMNodeContext
     ) async -> DVSMResult {
 
-        // 1. GOVERNANCE GATE
-        guard governance.validate(payload) else {
-            return .rejected(reason: "Governance failure")
-        }
-
-        // 2. ADAPTIVE LAYER
+        // 1. ADAPTIVE LAYER (optional hinting only)
         if mode == .adaptive || mode == .hybrid {
-            if let adaptive = adaptive {
-                let result = await adaptive.propose(payload, context: context)
-                if mode == .adaptive { return result }
-            }
+            _ = await adaptive?.propose(payload, context: context)
         }
 
-        // 3. STRICT LAYER (AUTHORITATIVE)
+        // 2. STRICT EXECUTION (candidate state)
         do {
-            return try await strict.ingest(payload, context: context)
+            let (root, _) = try await strict.execute(payload, context: context)
+
+            // 3. CONSENSUS PHASE 1: PREPARE
+            let prepareVotes = await consensus.broadcastPrepare(root: root)
+
+            // 4. CONSENSUS PHASE 2: COMMIT
+            let commitVotes = await consensus.broadcastCommit(root: root)
+
+            // 5. FINAL DECISION
+            let decision = consensus.finalize(
+                root: root,
+                commitCount: commitVotes,
+                totalNodes: prepareVotes
+            )
+
+            switch decision {
+            case .commit(let finalRoot):
+                return .accepted(finalRoot: finalRoot)
+
+            case .reject(let reason):
+                return .rejected(reason: reason)
+
+            case .pending:
+                return .deferred
+            }
+
         } catch {
             return .rejected(reason: error.localizedDescription)
         }
@@ -311,4 +364,5 @@ public final class DVMSDK {
 
         return await system.ingest(payload, context: context)
     }
+}
 }

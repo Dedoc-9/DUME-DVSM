@@ -1,0 +1,63 @@
+dume-dvsm-core/
+│
+├── README.md
+├── LICENSE (GPL-3)
+├── Package.swift
+│
+├── Core/
+│   ├── Types/
+│   ├── Crypto/
+│   ├── Canonical/
+│   └── Errors/
+│
+├── Node/
+│   ├── NodeContext.swift
+│   ├── NodeProtocol.swift
+│   └── ShardModel.swift
+│
+├── DAG/
+│   ├── MerkleTree.swift        ← FIXED IMPLEMENTATION
+│   ├── DAGStore.swift
+│   └── ProofEngine.swift
+│
+├── Engine/
+│   ├── DVSMStrictEngine.swift  ← deterministic system
+│   ├── DVSMAdaptiveEngine.swift ← probabilistic system
+│   └── EngineProtocol.swift
+│
+├── Governance/
+│   ├── GovPolicy.swift
+│   ├── GovEngine.swift
+│   └── Enforcement.swift
+│
+├── Audit/
+│   ├── AuditLog.swift
+│   ├── AuditRecord.swift
+│   └── CanonicalEncoding.swift
+│
+├── Storage/
+│   ├── StorageProtocol.swift
+│   ├── MemoryStorage.swift
+│   └── ShardedStorage.swift
+│
+├── Transport/
+│   ├── Gossip.swift
+│   ├── NodeNetwork.swift
+│   └── MessageBus.swift
+│
+├── Crypto/
+│   ├── SHA256.swift
+│   ├── HashingProtocol.swift
+│   └── VRFStub.swift
+│
+├── Compression/
+│   ├── SparseCompression.swift
+│   └── CompressionProtocol.swift
+│
+├── Replay/
+│   ├── ReplayVM.swift
+│   └── DeterministicExecutor.swift
+│
+└── Examples/
+    ├── StrictDemo.swift
+    └── AdaptiveDemo.swift

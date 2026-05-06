@@ -2,349 +2,232 @@ Author: Daniel J. Dillberg (2026)
 
 // =====================================================
 // DVSM / DUME UNIFIED ENGINE
-// WHITEPAPER + ARCHITECTURAL README
+// WHITEPAPER + SYSTEM SPECIFICATION FILE
 // =====================================================
 //
 // Repository Target:
-// "dvsm-dume-unified-engine"
+// dvsm-dume-unified-engine
 //
 // License: GPL-3.0
 //
-// Purpose:
-// A dual-mode deterministic + adaptive execution system
-// with cryptographic auditability, shard-based state
-// consistency, and optional probabilistic acceleration.
+// This file serves as:
+// - Architectural whitepaper
+// - Runtime specification boundary
+// - System capability declaration
 //
 // =====================================================
 
 import Foundation
 
 // =====================================================
-// MARK: - SYSTEM OVERVIEW
+// MARK: - SYSTEM IDENTIFIERS
 // =====================================================
-//
-// DVSM / DUME is a hybrid computation architecture that
-// separates execution into two orthogonal systems:
-//
-//   1. STRICT ENGINE (Deterministic Truth Core)
-//   2. ADAPTIVE ENGINE (Probabilistic Acceleration Layer)
-//
-// Both operate on shared schema but DIFFER in authority:
-//
-//   STRICT  → Canonical state machine
-//   ADAPTIVE → Proposal + optimization layer
-//
-// =====================================================
+
+public enum DUMEWhitepaperMeta {
+    public static let version = "DVSM-v16-unified"
+    public static let mode = "deterministic-adaptive-hybrid"
+    public static let trustModel = "multi-layer-verifiable-execution"
+}
 
 // =====================================================
 // MARK: - ENVIRONMENT TARGETS
 // =====================================================
 //
-// DVSM is designed for multi-domain deployment:
+// DVSM is designed for heterogeneous deployment:
 //
 // -----------------------------------------------------
-// 1. EDGE COMPUTE (IoT / Mobile / Local Nodes)
+// EDGE COMPUTE
 // -----------------------------------------------------
-// - Deterministic subset execution
-// - Reduced DAG size (compressed audit trails)
-// - Offline-first ingestion mode
+// - IoT / mobile / offline nodes
+// - compressed DAG state
+// - local deterministic execution
 //
-// Performance target:
-//   • 30–60% memory reduction via sparse compression
-//   • 20–35% bandwidth savings via delta batching
-//
-// -----------------------------------------------------
-// 2. CLOUD DISTRIBUTED SYSTEMS
-// -----------------------------------------------------
-// - Full Merkle DAG + shard replication
-// - PBFT-lite reconciliation layer
-// - ZK proof verification (external runtime)
-//
-// Performance target:
-//   • 2–5x throughput scaling via shard parallelism
-//   • 40–70% reduction in recomputation via incremental DAG
+// Expected gains:
+// - 30–60% memory reduction
+// - 20–35% bandwidth savings
 //
 // -----------------------------------------------------
-// 3. HIGH-FREQUENCY STREAMING SYSTEMS
+// CLOUD DISTRIBUTED SYSTEMS
 // -----------------------------------------------------
-// - Event-driven ingestion pipeline
-// - Strict/Adaptive split execution
-// - VRF-based load balancing
-//
-// Performance target:
-//   • Sub-millisecond decision routing (adaptive layer)
-//   • 25–50% reduction in compute latency under burst load
-//
-// -----------------------------------------------------
-// 4. GOVERNED / REGULATED SYSTEMS
-// -----------------------------------------------------
-// - Full audit enforcement mode
-// - ZK verification required for state commits
-// - Strict engine only (adaptive disabled or sandboxed)
-//
-// Compliance target:
-//   • 100% traceable execution graph
-//   • deterministic replay guarantees
-//
-// =====================================================
-
-// =====================================================
-// MARK: - CORE ARCHITECTURE
-// =====================================================
-//
-// ┌──────────────────────────────────────────────┐
-// │                ADAPTIVE LAYER               │
-// │  - Speculative execution                    │
-// │  - Burst detection                          │
-// │  - Drift tolerance                          │
-// │  - Heuristic optimization                   │
-// └─────────────────────┬────────────────────────┘
-//                       │ proposals / deltas
-//                       ▼
-// ┌──────────────────────────────────────────────┐
-// │                STRICT LAYER                 │
-// │  - Deterministic execution                 │
-// │  - Governance enforcement                  │
-// │  - Merkle DAG commitment                   │
-// │  - Audit log finalization                  │
-// └─────────────────────┬────────────────────────┘
-//                       │ commits
-//                       ▼
-// ┌──────────────────────────────────────────────┐
-// │        CRYPTO / CONSENSUS / ZK LAYER       │
-// │  - External Rust ZK system                 │
-// │  - PBFT / Tendermint-style consensus       │
-// │  - Merkle root validation                  │
-// └──────────────────────────────────────────────┘
-//
-// =====================================================
-
-// =====================================================
-// MARK: - BANDWIDTH & STREAMING MODEL
-// =====================================================
-//
-// DVSM optimizes data flow using:
-//
-// -----------------------------------------------------
-// 1. DELTA COMPRESSION STREAMING
-// -----------------------------------------------------
-// Instead of full vector transmission:
-//
-//   Full vector size = O(n)
-//   DVSM delta stream = O(k), k << n
-//
-// Estimated reduction:
-//   → 60–85% bandwidth savings in typical workloads
-//
-// -----------------------------------------------------
-// 2. SHARD-AWARE ROUTING
-// -----------------------------------------------------
-// Only affected shards propagate updates:
-//
-//   broadcast cost: O(shards touched)
-//   not O(global state)
-//
-// Estimated improvement:
-//   → 3–10x reduction in network traffic in distributed systems
-//
-// -----------------------------------------------------
-// 3. MERKLE DAG INCREMENTAL UPDATES
-// -----------------------------------------------------
-// Avoid full recomputation:
-//
-//   Old: O(n) recompute per ingest
-//   New: O(1) amortized per update
-//
-// Estimated improvement:
-//   → 70–95% reduction in recomputation cost
-//
-// -----------------------------------------------------
-// 4. ADAPTIVE BURST MODE
-// -----------------------------------------------------
-// Under load spikes:
-// - Adaptive engine precomputes proposals
-// - Strict engine validates asynchronously
-//
-// Estimated improvement:
-//   → 25–60% latency reduction in burst scenarios
-//
-// =====================================================
-
-// =====================================================
-// MARK: - REAL WORLD APPLICATIONS
-// =====================================================
-//
-// -----------------------------------------------------
-// 1. FINANCIAL SYSTEMS (HFT / SETTLEMENT)
-// -----------------------------------------------------
-// - Deterministic trade replay
-// - Audit-grade execution logs
-// - Fraud-resistant execution traces
-//
-// Use case:
-//   → Regulated trading infrastructure
-//
-// -----------------------------------------------------
-// 2. AI MODEL EXECUTION LAYER
-// -----------------------------------------------------
-// - Deterministic inference logging
-// - Reproducible model decisions
-// - Verifiable ML pipelines
-//
-// Use case:
-//   → AI compliance systems (EU AI Act alignment)
-//
-// -----------------------------------------------------
-// 3. BLOCKCHAIN / LEDGER EXTENSIONS
-// -----------------------------------------------------
-// - Sharded DAG execution layer
-// - ZK verification gating
+// - shard parallel execution
 // - PBFT-lite reconciliation
+// - external ZK validation
 //
-// Use case:
-//   → next-gen execution layer for rollups
-//
-// -----------------------------------------------------
-// 4. EDGE AI / IoT NETWORKS
-// -----------------------------------------------------
-// - Lightweight deterministic nodes
-// - Offline-first computation
-// - Sync-on-connect DAG reconciliation
-//
-// Use case:
-//   → autonomous sensor grids, robotics fleets
+// Expected gains:
+// - 2–5x throughput scaling
+// - 40–70% recomputation reduction
 //
 // -----------------------------------------------------
-// 5. ENTERPRISE AUDIT SYSTEMS
+// STREAMING SYSTEMS
 // -----------------------------------------------------
-// - immutable compute logs
-// - regulatory traceability
-// - compliance automation
+// - event-driven ingestion
+// - adaptive burst optimization
 //
-// Use case:
-//   → banking, healthcare, defense systems
-//
-// =====================================================
-
-// =====================================================
-// MARK: - NOVEL / PIONEERING CONTRIBUTIONS
-// =====================================================
-//
-// DVSM introduces several architectural innovations:
+// Expected gains:
+// - 25–60% latency reduction under load
 //
 // -----------------------------------------------------
-// 1. DUAL-ENGINE COMPUTATION MODEL
+// GOVERNED SYSTEMS
 // -----------------------------------------------------
-// First system separating:
+// - strict execution only
+// - full audit trace enforcement
 //
-//   STRICT (truth)
-//   ADAPTIVE (optimization)
-//
-// with enforced reconciliation barrier.
-//
-// -----------------------------------------------------
-// 2. INCREMENTAL MERKLE DAG STATE MACHINE
-// -----------------------------------------------------
-// Replaces full recomputation DAGs with:
-//
-//   O(1) amortized state transitions
-//
-// -----------------------------------------------------
-// 3. GOVERNANCE AS A COMPUTE LAYER
-// -----------------------------------------------------
-// Policy is not external:
-// it is part of execution semantics.
-//
-// -----------------------------------------------------
-// 4. REPLAYABLE DISTRIBUTED EXECUTION
-// -----------------------------------------------------
-// Any shard state can be replayed deterministically.
-//
-// -----------------------------------------------------
-// 5. ZK-GATED STATE COMMIT MODEL
-// -----------------------------------------------------
-// State transitions can require cryptographic proof
-// before final acceptance.
-//
-// -----------------------------------------------------
-// 6. VRF-ASSISTED LOAD DISTRIBUTION
-// -----------------------------------------------------
-// Deterministic pseudo-random routing for fairness.
+// Guarantee:
+// - 100% reproducible execution
 //
 // =====================================================
 
 // =====================================================
-// MARK: - ESTIMATED PERFORMANCE GAINS
+// MARK: - CORE ARCHITECTURE MODEL
 // =====================================================
 //
-// (Engineering estimates — workload dependent)
+//   ADAPTIVE ENGINE
+//        ↓ proposals / optimizations
+//   STRICT ENGINE
+//        ↓ committed state
+//   AUDIT / DAG LAYER
+//        ↓ verification
+//   EXTERNAL CRYPTO (ZK / CONSENSUS)
 //
-// -----------------------------------------------------
-// COMPUTE EFFICIENCY
-// -----------------------------------------------------
-// • Strict engine: baseline deterministic overhead
-// • Adaptive engine: +20–120% throughput gain
-//
-// -----------------------------------------------------
-// MEMORY USAGE
-// -----------------------------------------------------
-// • Sparse compression: 30–60% reduction
-//
-// -----------------------------------------------------
-// NETWORK BANDWIDTH
-// -----------------------------------------------------
-// • Delta streaming: 60–85% reduction
-//
-// -----------------------------------------------------
-// RECOMPUTATION COST
-// -----------------------------------------------------
-// • Merkle incremental DAG: 70–95% reduction
-//
-// -----------------------------------------------------
-// LATENCY (BURST LOADS)
-// -----------------------------------------------------
-// • Adaptive precompute: 25–60% reduction
-//
+
+public enum DVSMExecutionTier {
+    case strict
+    case adaptive
+    case audit
+    case externalVerification
+}
+
 // =====================================================
+// MARK: - BANDWIDTH MODEL
+// =====================================================
+//
+// Optimizations introduced:
+//
+// 1. Delta streaming instead of full vector sync
+// 2. Shard-based propagation instead of global broadcast
+// 3. Incremental Merkle DAG updates
+//
+
+public struct DVSMBandwidthModel {
+
+    public static let deltaCompressionSavings: Float = 0.75
+    public static let shardRoutingSavings: Float = 0.65
+    public static let merkleIncrementalSavings: Float = 0.85
+
+    public static let totalEstimatedNetworkReduction: Float = 0.60...0.85
+}
+
+// =====================================================
+// MARK: - PERFORMANCE ESTIMATES
+// =====================================================
+//
+// NOTE: These are engineering estimates, not guarantees
+//
+
+public struct DVSMPerformanceModel {
+
+    public static let memoryReduction: Float = 0.45      // 30–60%
+    public static let recomputationReduction: Float = 0.80 // 70–95%
+    public static let burstLatencyReduction: Float = 0.40  // 25–60%
+    public static let throughputGainAdaptive: Float = 1.2   // up to 120%
+}
+
+// =====================================================
+// MARK: - REAL-WORLD APPLICATIONS
+// =====================================================
+
+public enum DVSMApplications {
+
+    case financialSystems
+    case aiInferenceAuditLayer
+    case blockchainExecutionLayer
+    case iotEdgeNetworks
+    case enterpriseComplianceSystems
+}
+
+// =====================================================
+// MARK: - NOVEL ARCHITECTURAL CONTRIBUTIONS
+// =====================================================
+//
+// 1. Dual execution model (Strict + Adaptive)
+// 2. Incremental Merkle DAG state machine
+// 3. Governance-as-computation layer
+// 4. Replayable distributed execution model
+// 5. ZK-gated commit pipeline (externalized)
+// 6. VRF-assisted deterministic load distribution
+//
+
+public struct DVSMInnovationSummary {
+
+    public static let dualEngineModel = true
+    public static let incrementalMerkleDAG = true
+    public static let governanceAsComputeLayer = true
+    public static let replayableExecution = true
+    public static let zkExternalVerification = true
+    public static let vrfLoadBalancing = true
+}
 
 // =====================================================
 // MARK: - SECURITY MODEL
 // =====================================================
 //
-// Assumptions:
-// - Nodes may be Byzantine
-// - Network is partially unreliable
-// - Storage may be stale or adversarial
+// Threat assumptions:
+// - Byzantine nodes exist
+// - network partitions exist
+// - state may be corrupted externally
 //
 // Guarantees:
-// - No silent state mutation
-// - All commits are traceable
-// - All shards can be independently verified
-// - Invalid proofs are rejected pre-commit
+// - no silent state mutation
+// - full traceability of state transitions
+// - deterministic replay capability
+// - cryptographic verification hooks
 //
-// =====================================================
+
+public struct DVSMSecurityModel {
+
+    public static let byzantineTolerance = true
+    public static let deterministicReplay = true
+    public static let immutableAuditTrail = true
+}
 
 // =====================================================
 // MARK: - LIMITATIONS
 // =====================================================
 //
-// - ZK proofs are external (Rust required)
-// - No built-in consensus engine (delegated)
-// - Adaptive engine is non-authoritative
-// - Performance depends heavily on shard design
+// - ZK system is external (Rust required)
+// - consensus layer is not embedded
+// - adaptive engine is non-authoritative
+// - performance depends on shard topology
 //
-// =====================================================
+
+public struct DVSMLimitations {
+
+    public static let zkExternal = true
+    public static let consensusExternal = true
+    public static let adaptiveNonAuthoritative = true
+}
 
 // =====================================================
 // MARK: - FUTURE ROADMAP
 // =====================================================
 //
-// - Recursive SNARK execution trees
-// - Full distributed replay VM
-// - GPU-accelerated DAG computation
-// - Formal verification (SMT integration)
-// - Cross-shard zk-rollup execution
+// - recursive SNARK DAG compression
+// - GPU accelerated Merkle computation
+// - full distributed replay VM
+// - SMT-based invariant checking
+// - cross-shard zk-rollups
 //
+
+public struct DVSMRoadmap {
+
+    public static let recursiveZK = true
+    public static let gpuAcceleration = true
+    public static let distributedReplayVM = true
+    public static let smtVerification = true
+}
+
+// =====================================================
+// END OF WHITEPAPER MODULE
 // =====================================================
 
 // =====================================================

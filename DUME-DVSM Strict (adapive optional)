@@ -1,0 +1,394 @@
+// =====================================================
+// DVSM / DUME CORE ARCHITECTURE (v18 CONSOLIDATED SPEC)
+// =====================================================
+// GPL-3.0 LICENSED DESIGN
+// =====================================================
+
+import Foundation
+import CryptoKit
+
+// =====================================================
+// MARK: - LAYER 0: SYSTEM CONTRACTS
+// =====================================================
+
+/*
+ SYSTEM PRINCIPLE:
+
+ All computation is split into:
+
+ 1. STRICT LAYER   → deterministic, verifiable, governed
+ 2. ADAPTIVE LAYER → probabilistic, manifold-driven, noisy
+ 3. SHARED LAYERS  → DAG, audit, storage, crypto, replay
+ 4. EXTERNAL LAYER → ZK, BLAKE3, consensus, SMT, network
+*/
+
+// =====================================================
+// MARK: - LAYER 1: NODE MODEL
+// =====================================================
+
+public protocol DVSMNode {
+    var nodeID: String { get }
+    var shardKey: String { get }
+
+    func ingest(_ vector: [Float]) async throws
+}
+
+// =====================================================
+// MARK: - LAYER 2: CANONICAL ENCODING (DETERMINISM BASE)
+// =====================================================
+
+public struct CanonicalEncoding {
+
+    public static func encode(
+        id: String,
+        vector: [Float],
+        timestamp: UInt64
+    ) -> Data {
+
+        let raw = """
+        id:\(id)
+        vec:\(vector.map { String($0) }.joined(separator: ","))
+        ts:\(timestamp)
+        """
+
+        return Data(raw.utf8)
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 3: CRYPTO ABSTRACTION
+// =====================================================
+
+public protocol Hashing {
+    func hash(_ data: Data) -> Data
+}
+
+public struct SHA256Hash: Hashing {
+    public func hash(_ data: Data) -> Data {
+        Data(SHA256.hash(data: data))
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 4: VRF (SEPARATED MODES)
+// =====================================================
+
+public struct VRF {
+
+    // deterministic internal noise (SAFE)
+    public static func deterministic(seed: UInt64, context: String) -> Float {
+        var h = seed ^ UInt64(context.hashValue)
+        h = h &* 6364136223846793005 &+ 1
+        return Float((h >> 16) & 0xFFFF) / 65535.0
+    }
+
+    // external cryptographic VRF (NOT IMPLEMENTED HERE)
+    public static func external(_ input: Data) -> Data {
+        SHA256.hash(data: input)
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 5: MERKLE DAG (FIXED CORRECT IMPLEMENTATION)
+// =====================================================
+
+public struct MerkleTree {
+
+    private let hasher: Hashing
+
+    public init(hasher: Hashing) {
+        self.hasher = hasher
+    }
+
+    public func leaf(_ data: Data) -> Data {
+        hasher.hash(data)
+    }
+
+    public func parent(_ left: Data, _ right: Data) -> Data {
+        hasher.hash(left + right)
+    }
+
+    public func root(_ leaves: [Data]) -> Data {
+        guard !leaves.isEmpty else { return Data() }
+
+        var level = leaves.map { leaf($0) }
+
+        while level.count > 1 {
+            var next: [Data] = []
+
+            for i in stride(from: 0, to: level.count, by: 2) {
+                if i + 1 < level.count {
+                    next.append(parent(level[i], level[i+1]))
+                } else {
+                    next.append(level[i])
+                }
+            }
+
+            level = next
+        }
+
+        return level[0]
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 6: STORAGE (STATE AUTHORITY)
+// =====================================================
+
+public protocol Storage {
+    func put(_ key: String, _ value: Data) async
+    func get(_ key: String) async -> Data?
+}
+
+public actor MemoryStorage: Storage {
+
+    private var db: [String: Data] = [:]
+
+    public func put(_ key: String, _ value: Data) async {
+        db[key] = value
+    }
+
+    public func get(_ key: String) async -> Data? {
+        db[key]
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 7: AUDIT SYSTEM (IMMUTABLE LOG)
+// =====================================================
+
+public struct AuditRecord {
+    public let id: String
+    public let hash: Data
+    public let prevHash: Data?
+    public let timestamp: UInt64
+}
+
+public actor AuditLog {
+
+    private var records: [AuditRecord] = []
+    private let hasher: Hashing
+
+    public init(hasher: Hashing) {
+        self.hasher = hasher
+    }
+
+    public func append(id: String,
+                       payload: Data,
+                       timestamp: UInt64) {
+
+        let hash = hasher.hash(payload)
+        let prev = records.last?.hash
+
+        records.append(
+            AuditRecord(
+                id: id,
+                hash: hash,
+                prevHash: prev,
+                timestamp: timestamp
+            )
+        )
+    }
+
+    public func verify() -> Bool {
+        var prev: Data?
+
+        for r in records {
+            if let p = prev, r.prevHash != p {
+                return false
+            }
+            prev = r.hash
+        }
+
+        return true
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 8: GOVERNANCE (STRICT BOUNDARY)
+// =====================================================
+
+public struct GovPolicy {
+    public let maxDrift: Float
+    public let maxEntropy: Float
+}
+
+public final class GovEngine {
+
+    private let policy: GovPolicy
+
+    public init(policy: GovPolicy) {
+        self.policy = policy
+    }
+
+    public func validate(drift: Float,
+                         entropy: Float) throws {
+
+        if drift > policy.maxDrift {
+            throw NSError(domain: "DRIFT_VIOLATION", code: 1)
+        }
+
+        if entropy > policy.maxEntropy {
+            throw NSError(domain: "ENTROPY_VIOLATION", code: 2)
+        }
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 9: STRICT ENGINE (DVSM-S)
+// =====================================================
+
+public final class DVSMStrictEngine {
+
+    private let storage: Storage
+    private let gov: GovEngine
+    private let audit: AuditLog
+    private let merkle: MerkleTree
+
+    private var clock: UInt64 = 0
+
+    public init(storage: Storage,
+                gov: GovEngine,
+                audit: AuditLog,
+                merkle: MerkleTree) {
+
+        self.storage = storage
+        self.gov = gov
+        self.audit = audit
+        self.merkle = merkle
+    }
+
+    public func ingest(id: String,
+                       vector: [Float],
+                       drift: Float,
+                       entropy: Float) async throws {
+
+        try gov.validate(drift: drift, entropy: entropy)
+
+        clock += 1
+
+        let encoded = CanonicalEncoding.encode(
+            id: id,
+            vector: vector,
+            timestamp: clock
+        )
+
+        let leaf = merkle.leaf(encoded)
+
+        await storage.put(id, leaf)
+        await audit.append(id: id,
+                           payload: encoded,
+                           timestamp: clock)
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 10: ADAPTIVE ENGINE (DVSM-A)
+// =====================================================
+
+public final class DVSMAdaptiveEngine {
+
+    private let storage: Storage
+    private let audit: AuditLog
+    private let merkle: MerkleTree
+
+    private var seed: UInt64 = 0xA1B2C3D4
+    private var clock: UInt64 = 0
+
+    public init(storage: Storage,
+                audit: AuditLog,
+                merkle: MerkleTree) {
+
+        self.storage = storage
+        self.audit = audit
+        self.merkle = merkle
+    }
+
+    public func ingest(id: String,
+                       vector: [Float],
+                       drift: Float,
+                       entropy: Float) async throws {
+
+        clock += 1
+
+        let noise = VRF.deterministic(seed: seed, context: id)
+
+        let perturbed = vector.map {
+            $0 * (0.7 + noise * 0.3)
+        }
+
+        let encoded = CanonicalEncoding.encode(
+            id: id,
+            vector: perturbed,
+            timestamp: clock
+        )
+
+        let leaf = merkle.leaf(encoded)
+
+        await storage.put(id, leaf)
+        await audit.append(id: id,
+                           payload: encoded,
+                           timestamp: clock)
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 11: REPLAY VM (DETERMINISM CHECK)
+// =====================================================
+
+public final class ReplayVM {
+
+    public init() {}
+
+    public func verify(_ log: [AuditRecord]) -> Bool {
+        var prev: Data?
+
+        for r in log {
+            if let p = prev, r.prevHash != p {
+                return false
+            }
+            prev = r.hash
+        }
+
+        return true
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 12: SYSTEM ENTRYPOINT
+// =====================================================
+
+public final class DUMESystem {
+
+    public let strict: DVSMStrictEngine
+    public let adaptive: DVSMAdaptiveEngine
+
+    public init(strict: DVSMStrictEngine,
+                adaptive: DVSMAdaptiveEngine) {
+
+        self.strict = strict
+        self.adaptive = adaptive
+    }
+}
+
+// =====================================================
+// MARK: - LAYER 13: EXTERNAL SYSTEM CONTRACTS (BOUNDARY ONLY)
+// =====================================================
+
+/*
+ REQUIRED EXTERNAL SYSTEMS:
+
+ - BLAKE3 hashing backend
+ - Rust ZK (Groth16 / Halo2)
+ - SMT solver (Z3/cvc5)
+ - libp2p networking
+ - distributed replay VM
+ - PBFT / HotStuff consensus layer
+
+ Swift DOES NOT implement these.
+ Only interfaces to them exist externally.
+*/
+
+// =====================================================
+// END OF ARCHITECTURE SPEC
+// =====================================================

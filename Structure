@@ -61,3 +61,54 @@ dume-dvsm-core/
 └── Examples/
     ├── StrictDemo.swift
     └── AdaptiveDemo.swift
+
+STRICT GOVERNANCE ENGINE (DVSM-S)
+
+dume-dvsm-core/
+│
+├── Engines/
+│   ├── DVSMStrictEngine.swift        ← deterministic / governance-first
+│   ├── DVSMAdaptiveEngine.swift      ← probabilistic / manifold-first
+│
+├── Core/
+│   ├── NodeProtocol.swift
+│   ├── CanonicalEncoding.swift
+│   ├── Crypto.swift
+│   ├── VRF.swift
+│
+├── DAG/
+│   ├── MerkleTree.swift              ← FIXED IMPLEMENTATION
+│   ├── DAGStore.swift
+│
+├── Audit/
+│   ├── AuditLog.swift
+│
+├── Governance/
+│   ├── GovPolicy.swift
+│   ├── GovEngine.swift
+│
+├── Replay/
+│   ├── ReplayVM.swift
+│
+└── Storage/
+    ├── MemoryStorage.swift
+no probabilistic mutation
+
+                     ┌────────────────────┐
+                     │   Node Interface   │
+                     └─────────┬──────────┘
+                               │
+        ┌──────────────────────┴──────────────────────┐
+        │                                             │
+┌───────▼────────┐                        ┌───────────▼──────────┐
+│ DVSMStrictEngine│                        │ DVSMAdaptiveEngine  │
+│ (deterministic) │                        | (probabilistic)     │
+└───────┬────────┘                        └───────────┬──────────┘
+        │                                             │
+        └───────────────┬─────────────────────────────┘
+                        ▼
+                Shared Infrastructure
+        ┌──────────────────────────────────┐
+        │ MerkleTree / Audit / Storage     │
+        │ Governance / Replay / Crypto     │
+        └──────────────────────────────────┘
